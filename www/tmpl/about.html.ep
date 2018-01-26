@@ -7,6 +7,7 @@
 
     <ul>
     <% foreach my $network ($vars->{logbot}->networks) { %>
+        % next unless $network->public_channels;
         <li><b><%= $network->{nick} %></b> on <%= $network->{network} %> (<%= $network->{server} %>)</li>
     <% } %>
     </ul>
@@ -50,7 +51,7 @@
         <a href="http://krijnhoetmer.nl/irc-logs/">krijnhoetmer.nl</a>
     </div>
     <div>
-        <a href="http://irclog.gr/">irclog.gr</a>
+        <a href="https://botbot.me/mozilla/">botbot.me</a>
     </div>
 </div>
 

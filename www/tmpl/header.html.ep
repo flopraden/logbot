@@ -5,21 +5,21 @@
     <title>LogBot<%= $title_suffix %></title>
     <link rel="shortcut icon" href="/favicon.ico">
 
-    <script src="/js/jquery-1.7.1.min.js"></script>
-    <script src="/js/jquery.animate-colors-min.js"></script>
+    <script src="/js/jquery-3.1.0.min.js"></script>
 
     <link rel="stylesheet" href="/css/calendar.css">
     <script src="/js/calendar.js"></script>
     <script src="/js/calendar-en.js"></script>
     <script src="/js/calendar-setup.js"></script>
 
-    <link rel="stylesheet" href="/css/chosen.css">
-    <script src="/js/chosen.jquery.min.js"></script>
+    <link rel="stylesheet" href="/css/chosen-1.6.2.min.css">
+    <script src="/js/chosen-1.6.2.min.js"></script>
 
     <script src="js/jquery.flot.min.js"></script>
 
-    <link rel="stylesheet" href="/css/default.css?2">
-    <script src="/js/logbot.js"></script>
+    <link href="https://fonts.googleapis.com/css?family=Roboto:400,700" rel="stylesheet" type="text/css">
+    <link rel="stylesheet" href="/css/default.css?8">
+    <script src="/js/logbot.js?4"></script>
 </head>
 <body>
 <div id="top"></div>
@@ -31,9 +31,13 @@
     </a>
 </div>
 
+<div id="nav_source">
+    <a href="https://github.com/globau/logbot">source</a>
+</div>
+
 % if ($vars->{c}) {
     <div id="nav_about">
-        <a href="/">logbot</a>
+        <a href="/">index</a>
     </div>
 % }
 

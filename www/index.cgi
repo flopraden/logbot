@@ -1,34 +1,39 @@
 #!/usr/bin/env perl
 
-use strict;
-use warnings;
-
+# the web ui needs to know where logbot is installed
 # set this in apache with
 # SetEnv HTTP_X_LIB_PATH /home/logbot/logbot/lib
-use lib $ENV{HTTP_X_LIB_PATH};
 
-# because we log times as UTC, force all our timezone dates to UTC
-BEGIN { $ENV{TZ} = 'UTC' }
+use FindBin '$RealBin';
+BEGIN {
+    if ($ENV{HTTP_X_LIB_PATH}) {
+        unshift @INC, $ENV{HTTP_X_LIB_PATH};
+    } else {
+        unshift @INC, "$RealBin/..";
+    }
+}
+use LogBot::BP;
 
 use CGI::Simple;
 use DateTime;
 use Date::Manip;
+use Encode qw(decode);
 use File::Slurp;
 use HTTP::BrowserDetect;
-use LogBot;
+use List::Util qw(any);
 use LogBot::CGI;
-use LogBot::Constants;
 use LogBot::Template;
 use LogBot::Util;
-use Mojo::Util qw(xml_escape);
+use Mojo::JSON qw(encode_json);
+use Mojo::Util qw(xml_escape url_escape);
 
 my $conf_filename = 'logbot.conf';
 foreach my $path (@INC) {
-    next unless -e "$path/../$conf_filename";
-    $conf_filename = "$path/../$conf_filename";
+    next unless -e "$path/$conf_filename";
+    $conf_filename = "$path/$conf_filename";
     last;
 }
-LogBot->new($conf_filename, LOAD_IMMEDIATE);
+LogBot->init($conf_filename);
 
 our $cgi = LogBot::CGI->instance;
 our $config = LogBot->config;
@@ -46,71 +51,67 @@ parse_parameters();
 if ($vars->{action} eq 'json') {
     print $cgi->header(-type => 'application/json', -charset => 'utf-8');
 
-    require Mojo::JSON;
-    my $json = Mojo::JSON->new;
-
     $SIG{__DIE__} = sub {
         my $error = shift;
-        print $json->encode({ error => sanatise_perl_error($error) });
+        print encode_json({ error => sanatise_perl_error($error) });
         exit;
     };
+    die $vars->{error} . "\n" if exists $vars->{error};
 
     my $channel = $vars->{channel};
     my $request = $vars->{r};
     if ($request eq 'channel_data') {
-        my $last_message = $channel->last_message;
-        my $last_updated;
-        if ($last_message) {
-            $last_updated = $last_message->datetime->strftime('%d %b %Y %H:%M:%S')
-        } else {
-            $last_updated = '';
-        }
+        my $first = $channel->first_event;
+        my $first_updated = $first
+            ? $first->datetime->strftime('%d %b %Y %H:%M:%S')
+            : '';
+        my $last = $channel->last_message;
+        my $last_updated = $last
+            ? $last->datetime->strftime('%d %b %Y %H:%M:%S')
+            : '';
 
-        print $json->encode({
+        print encode_json({
             database_size => pretty_size($channel->database_size),
+            first_updated => $first_updated,
             last_updated => $last_updated,
             event_count => commify($channel->event_count),
         });
 
-    } elsif ($request eq 'channel_last_updated') {
-        my $last_message = $channel->last_message;
-        my $last_updated;
-        if ($last_message) {
-            $last_updated = $last_message->datetime->strftime('%d %b %Y %H:%M:%S')
-        } else {
-            $last_updated = '';
-        }
-        print $json->encode({
-            last_updated => $last_updated,
-        });
-
-    } elsif ($request eq 'channel_database_size') {
-        print $json->encode({
-            database_size => pretty_size($channel->database_size),
-        });
-
-    } elsif ($request eq 'channel_event_count') {
-        print $json->encode({
-            event_count => commify($channel->event_count),
-        });
-
-    } elsif ($request eq 'channel_plot_hours') {
+    } elsif ($request =~ /^channel_plot_(hours|nicks)$/) {
+        my $type = $1;
         my $network = $channel->{network}->{network};
         my $channel_name = $channel->{name};
         $channel_name =~ s/^#//;
-        my $filename = $config->{data_path} . "/plot/hours/$network-$channel_name.json";
+        my $filename = $config->{data_path} . "/plot/$type/$network-$channel_name.json";
         if (!-e $filename) {
-            $filename = $config->{data_path} . '/plot/hours/_empty.json';
+            $filename = $config->{data_path} . "/plot/$type/_empty.json";
         }
         print read_file($filename);
+
+    } elsif ($request eq 'link_to') {
+        print encode_json(link_to($channel));
 
     }
 
     exit;
 }
 
+if ($vars->{action} eq 'link_to') {
+    my $link_to;
+    eval {
+        $link_to = link_to($vars->{channel});
+    };
+    if ($@) {
+        $vars->{error} = $@;
+        $vars->{action} = 'browse';
+    } else {
+        print "Location: " . $link_to->{url}, "\n\n";
+        exit;
+    }
+}
+
 # force queries from robots to a single date
-my $is_robot = HTTP::BrowserDetect::robot();
+my $is_robot = HTTP::BrowserDetect::robot() || $cgi->param('robot');
 if ($is_robot) {
     if ($vars->{action} eq 'browse') {
         $vars->{end_date} = $vars->{start_date}->clone->add(days => 1);
@@ -252,17 +253,18 @@ sub parse_parameters {
     my $channel = $network->channel($channel_name);
     if (!$channel || !($channel->{public} || $channel->{hidden})) {
         $vars->{error} = "Unsupported channel $channel_name";
-        $vars->{action} = 'about';
+        $vars->{action} = ($cgi->param('a') // '') eq 'json' ? 'json' : 'about';
         return;
     }
     $vars->{channel} = $channel;
 
-    $vars->{c} = "$network_name$channel_name";
+    ($network_name, $channel_name) = ($network->{network}, $channel->{name});
+    $vars->{c} = $network_name . $channel_name;
 
     # action
 
     my $action = $cgi->param('a');
-    $action = '' if !defined($action) || ($action ne 'search' && $action ne 'json');
+    $action = '' if !defined($action) || ($action ne 'search' && $action ne 'json' && $action ne 'link_to');
 
     if ($action eq '') {
         delete $vars->{a};
@@ -332,6 +334,10 @@ sub parse_parameters {
 
         # no need to prefill data for tabs
 
+        return;
+
+    } elsif ($action eq 'link_to') {
+        $vars->{action} = 'link_to';
         return;
 
     } else {
@@ -444,7 +450,7 @@ sub parse_parameters {
 
     if ($vars->{action} eq 'browse' && $vars->{run}) {
         if ($vars->{start_date}->delta_days($vars->{end_date})->in_units('days') > MAX_BROWSE_DAY_SPAN) {
-            $vars->{error} = 'You cannot browse dates greater than ' . MAX_BROWSE_DAY_SPAN . ' days appart.';
+            $vars->{error} = 'You cannot browse dates greater than ' . MAX_BROWSE_DAY_SPAN . ' days apart.';
             return;
         }
     }
@@ -578,6 +584,9 @@ sub show_events {
                 }
             }
 
+            $event->{text} = decode('UTF-8', $event->{text});
+            $vars->{bot} = any { $event->{nick} eq $_ } @{ $vars->{network}->{bots} };
+
             $template->render("$template_dir/content.html", vars => $vars, event => $event);
 
             return 1;
@@ -654,8 +663,8 @@ sub linkify {
     # munge email addresses
     $value =~ s#([a-zA-Z0-9\.-]+)\@(([a-zA-Z0-9\.-]+\.)+[a-zA-Z0-9\.-]+)#$1\%$2#g;
 
-    unless ($value =~ s#&lt;(https?://.+?)&gt;#'&lt;<a href="' . $rs_href->($1) . '" target="_blank">' . shorten($1) . '</a>&gt;'#ge) {
-        $value =~ s#(https?://[^\s\b]+)#'<a href="' . $rs_href->($1) . '" target="_blank">' . shorten($1) . '</a>'#ge;
+    unless ($value =~ s#&lt;(https?://.+?)&gt;#'&lt;<a href="' . $rs_href->($1) . '" target="_blank">' . shorten_url($1) . '</a>&gt;'#ge) {
+        $value =~ s#(https?://[^\s\b,]*[^\s\b,.?!;)])#'<a href="' . $rs_href->($1) . '" target="_blank">' . shorten_url($1) . '</a>'#ge;
     }
 
     # bugzilla urls
@@ -695,3 +704,49 @@ sub hilite {
     return $value;
 }
 
+
+sub link_to {
+    my ($channel) = @_;
+
+    my $nick = $cgi->param('n') // die "nick required in param 'n'\n";
+    my $time = $cgi->param('t') // die "time required in param 't'\n";
+    die "invalid time\n" if $time =~ /\D/;
+
+    my @events;
+    $channel->database->query(
+        event => EVENT_PUBLIC,
+        nick => $nick,
+        date_before => $time + 5,
+        date_after => $time - 5,
+        callback => sub { push @events, $_[0] },
+    );
+
+    @events = sort { abs($time - $a->{time}) <=> abs($time - $b->{time}) } @events;
+    die "failed to find message\n" unless @events;
+    my $event = $events[0]->to_ref;
+    delete $event->{type};
+
+    my $url = $config->{web}->{url} . '?';
+
+    my $network = $channel->{network}->{network};
+    my $c = '';
+    if ($network ne $config->{web}->{default_network}) {
+        $c = $network;
+    }
+    if ($channel->{name} ne $config->{web}->{default_channel}) {
+        $c .= $channel->{name};
+    }
+    if ($c) {
+        $url .= 'c=' . url_escape($c);
+    }
+
+    my $s = DateTime->from_epoch(epoch => $time)->truncate(to => 'day')->ymd('');
+    $url .= '&s=' . $s. '&e=' . $s;
+
+    $url .= '#c' . $event->{id};
+
+    return {
+        event => $event,
+        url   => $url,
+    };
+}

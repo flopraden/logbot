@@ -1,8 +1,5 @@
 package LogBot::ConfigFile;
-
-use strict;
-use warnings;
-use feature qw(switch);
+use LogBot::BP;
 
 use fields qw(
     bot
@@ -64,12 +61,12 @@ sub load {
     $self->{data_path} = $self->_value($config, 'data_path', STR, MAND);
     $self->{data_path} =~ s/\/$//;
 
-    $self->{bot}->{debug_poe} = $self->_value($config->{bot}, 'debug_poe', BOOL, OPT, FALSE);
     $self->{bot}->{debug_irc} = $self->_value($config->{bot}, 'debug_irc', BOOL, OPT, FALSE);
 
     $self->{web}->{default_network} = $self->_value($config->{web}, 'default_network', STR, MAND);
     $self->{web}->{default_channel} = canon_channel($self->_value($config->{web}, 'default_channel', STR, MAND));
     $self->{web}->{search_limit}    = $self->_value($config->{web}, 'search_limit', INT, OPT, 1000);
+    $self->{web}->{url}             = $self->_value($config->{web}, 'url', STR, MAND);
 
     foreach my $network_name (keys %{$config->{network}}) {
         my $network_config = $config->{network}->{$network_name};
@@ -134,15 +131,16 @@ sub _value {
     $value = $default unless defined $value;
 
     my $valid = 1;
-    given($type) {
-        when(STR)  { $value =~ s/(^\s+|\s+$)//g }
-        when(INT)  { $valid = 0 if $value =~ /\D/ }
-        when(BOOL) { $value = $value ? 1 : 0 }
-        when(LIST) {
-            my @valid = split(/\|/, lc($list_values));
-            $valid = (grep { lc($_) eq $value } @valid) ? 1 : 0;
-            $value = lc($value) if $valid;
-        }
+    if ($type == STR) {
+        $value =~ s/(^\s+|\s+$)//g;
+    } elsif ($type == INT) {
+        $valid = 0 if $value =~ /\D/;
+    } elsif ($type == BOOL) {
+        $value = $value ? 1 : 0;
+    } elsif ($type == LIST) {
+        my @valid = split(/\|/, lc($list_values));
+        $valid = (grep { lc($_) eq $value } @valid) ? 1 : 0;
+        $value = lc($value) if $valid;
     }
     if (!$valid) {
         push @{$self->{_invalid}}, $self->{_context} . " : $name ($value)";

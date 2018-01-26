@@ -1,13 +1,9 @@
 package LogBot::IRC;
-
-use strict;
-use warnings;
+use LogBot::BP;
 
 use Class::Sniff;
 use IRC::Utils ':ALL';
-use LogBot;
 use LogBot::Bot;
-use LogBot::Constants;
 use POE;
 use POE::Component::IRC;
 use POE::Component::IRC::Plugin::BotAddressed;
@@ -26,14 +22,14 @@ sub connect_network {
     my ($class, $network) = @_;
 
     return unless grep { $_->{join} } $network->channels;
-    printf "Connecting to %s (%s:%s)\n", $network->{network}, $network->{server}, $network->{port};
+    printf STDERR "Connecting to %s (%s:%s)\n", $network->{network}, $network->{server}, $network->{port};
 
     my $irc = POE::Component::IRC->spawn(
         nick        => $network->{nick},
         ircname     => $network->{name},
         server      => $network->{server},
         port        => $network->{port},
-        debug       => LogBot->config->{bot}->{debug_irc},
+        debug       => 1,
     ) or die "failed: $!\n";
 
     if ($network->{password}) {
@@ -81,17 +77,30 @@ sub _start {
 }
 
 sub irc_001 {
-    my $sender = $_[SENDER];
-    my $heap = $_[HEAP];
+    my ($sender, $kernel, $heap) = @_[SENDER, KERNEL, HEAP];
     my $irc = $heap->{irc};
-    my $bot = $heap->{bot};
     my $network = $heap->{network};
 
-    print "Connected to ", $irc->server_name(), "\n";
+    print STDERR "Connected to ", $irc->server_name(), "\n";
+    if (!$network->{password}) {
+        _join_channels($heap->{bot}, $network);
+    }
+    return;
+}
+
+sub irc_identified {
+    my ($sender, $kernel, $heap) = @_[SENDER, KERNEL, HEAP];
+
+    print STDERR "Identified\n";
+    _join_channels($heap->{bot}, $heap->{network});
+    return;
+}
+
+sub _join_channels {
+    my ($bot, $network) = @_;
     foreach my $channel ($network->channels) {
         $bot->join($channel);
     }
-    return;
 }
 
 sub irc_join {
@@ -123,6 +132,7 @@ sub irc_quit {
     my $what = $_[ARG1];
 
     $bot->quit($nick, $what);
+    return;
 }
 
 sub irc_msg {

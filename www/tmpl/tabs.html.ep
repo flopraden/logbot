@@ -12,7 +12,7 @@
         %}
         " onclick="switch_tab('search_tab')">Search</div>
     <div id="about_tab_title" class="tab_title"
-         onclick="switch_tab('about_tab')">About</div>
+         onclick="switch_tab('about_tab')">About <%= $vars->{channel}->{name} %></div>
 </div>
 
 % my $class;
@@ -28,10 +28,10 @@
         % }
 
         <input name="s" id="start_date" size="10" type="text" value="<%= $vars->{s} %>">
-        <a href="javascript:void(0)" class="cal" id="start_date_cal">&hellip;</a>
-        -
+        <a href="javascript:void(0)" class="cal" id="start_date_cal"><img src="img/cal.png" width="16" height="16"></a>
+        &mdash;
         <input name="e" id="end_date" size="10" type="text" value="<%= $vars->{e} %>">
-        <a href="javascript:void(0)" class="cal" id="end_date_cal">&hellip;</a>
+        <a href="javascript:void(0)" class="cal" id="end_date_cal"><img src="img/cal.png" width="16" height="16"></a>
 
         % if ($vars->{channel}->{log_events}) {
             <input type="checkbox" name="j" id="show_join" value="1" <%= 'checked' if $vars->{j} %>>
@@ -63,10 +63,10 @@
         between
 
         <input name="ss" id="search_start_date" size="10" type="text" value="<%= $vars->{ss} %>">
-        <a href="javascript:void(0)" class="cal" id="search_start_date_cal">&hellip;</a>
-        -
+        <a href="javascript:void(0)" class="cal" id="search_start_date_cal"><img src="img/cal.png" width="16" height="16"></a>
+        &mdash;
         <input name="se" id="search_end_date" size="10" type="text" value="<%= $vars->{se} %>">
-        <a href="javascript:void(0)" class="cal" id="search_end_date_cal">&hellip;</a>
+        <a href="javascript:void(0)" class="cal" id="search_end_date_cal"><img src="img/cal.png" width="16" height="16"></a>
 
         <input type="submit" value="Search">
     </form>
@@ -100,6 +100,9 @@
             &nbsp;&nbsp;&nbsp;
         </td>
         <td valign="top">
+            <div id="first_updated">
+                Logging Started <span class="loading">loading..</span>
+            </div>
             <div>
                 Database size: <span id="database_size">
                     <span class="loading">loading..</span>
@@ -115,7 +118,9 @@
     </tr>
     </table>
     <div class="about_header">Channel activity by hour:</div>
-    <div id="hours_plot"></div>
+    <div id="hours_plot"><span class="loading">loading..</span></div>
+    <div class="about_header">Top Users (by number of messages):</div>
+    <div id="nicks_plot"><span class="loading">loading..</span></div>
 </div>
 
 <script>
@@ -123,8 +128,8 @@
     add_tab('search_tab');
     add_tab('about_tab');
     init_tabs('<%= $vars->{c} %>');
-    var current_hh = <%= $now->strftime('%H') %>;
-    var current_mm = <%= $now->strftime('%M') %>;
+    var current_hh = <%= $now->strftime('%H') + 0 %>;
+    var current_mm = <%= $now->strftime('%M') + 0 %>;
 </script>
 
 % if ($vars->{error}) {

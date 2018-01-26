@@ -1,27 +1,17 @@
 #!/usr/bin/perl
-
-use strict;
-use warnings;
-use feature qw(say);
-use autodie;
-
-use FindBin qw($Bin);
-use lib "$Bin/lib";
-
-# because we log times as UTC, force all our timezone dates to UTC
-BEGIN { $ENV{TZ} = 'UTC' }
+use FindBin '$RealBin';
+use lib $RealBin;
+use LogBot::BP;
 
 use DateTime;
 use File::Basename;
 use FileHandle;
 use File::Path qw(make_path remove_tree);
-use LogBot;
-use LogBot::Constants;
 
 # init
 
-LogBot->new("$Bin/logbot.conf", LOAD_IMMEDIATE);
-my $backup_path = "$Bin/backup";
+LogBot->init("$RealBin/logbot.conf");
+my $backup_path = "$RealBin/backup";
 
 # generate text logs of events
 
@@ -107,12 +97,13 @@ foreach my $file (glob('*')) {
     rsync($file, "$source_path/$file") or die $!;
 }
 
-rsync('lib', $source_path);
+rsync('LogBot*', $source_path);
 rsync('3rd-party-licenses', $source_path);
 make_path("$source_path/www") unless -d "$source_path/www";
 my $www_path = -l 'www' ? readlink('www') : 'www/';
 rsync($www_path, "$source_path/www", "--exclude 'google*.html'");
-rsync("${www_path}.ht*", "$source_path/www");
+rsync("${www_path}.ht*", "$source_path/www")
+    if glob("${www_path}.ht*");
 
 rsync("logbot.conf", "$backup_path");
 

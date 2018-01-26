@@ -1,16 +1,13 @@
 package LogBot;
-
-use strict;
-use warnings;
-use feature qw(switch);
+use LogBot::BP;
 
 use LogBot::Config;
 use LogBot::ConfigFile;
-use LogBot::Constants;
 use LogBot::Network;
 
 use fields qw(
     _config_filename
+    _config_file
     _config
     _networks
     _is_daemon
@@ -29,8 +26,8 @@ sub initialised {
     return $self ? 1 : 0;
 }
 
-sub new {
-    my ($class, $config_filename, $load) = @_;
+sub init {
+    my ($class, $config_filename, $load_deferred) = @_;
 
     $self ||= fields::new($class);
 
@@ -38,7 +35,9 @@ sub new {
     $self->{_is_daemon} = 0;
     $self->{_actions} = [];
 
-    if ($load == LOAD_IMMEDIATE) {
+    $self->_load_config();
+
+    unless ($load_deferred) {
         unless ($self->reload()) {
             die $self->config_error . "\n";
         }
@@ -51,12 +50,24 @@ sub instance {
     return $self;
 }
 
+sub config_file {
+    my ($class) = @_;
+    if (!$self->{_config_file}) {
+        $self->_load_config();
+    }
+    return $self->{_config_file};
+}
+
+sub _load_config {
+    my ($class) = @_;
+    $self->{_config_file} = LogBot::ConfigFile->new($self->{_config_filename});
+}
+
 sub reload {
     my ($class) = @_;
 
-    my $config_file;
     eval {
-        $config_file = LogBot::ConfigFile->new($self->{_config_filename});
+        $self->_load_config();
     };
     if ($@) {
         my @error;
@@ -67,6 +78,7 @@ sub reload {
         $self->{_config_error} = join("\n", @error);
         return;
     }
+    my $config_file = $self->{_config_file};
 
     $self->{_config} = LogBot::Config->new(
         bot => $config_file->{bot},
@@ -127,6 +139,9 @@ sub reload {
         }
     }
 
+    # no longer need this loaded
+    $self->{_config_file} = undef;
+
     return 1;
 }
 
@@ -178,29 +193,26 @@ sub action {
 sub do_actions {
     while (my $action = shift @{ $self->{_actions} }) {
         my ($network, $channel) = ($action->{network}, $action->{channel});
-        given($action->{type}) {
-            when(ACTION_NETWORK_CONNECT) {
-                $self->_remove_actions(network => $network);
-                $network->connect();
-            }
-            when(ACTION_NETWORK_RECONNECT) {
-                $self->_remove_actions(network => $network);
-                $network->disconnect();
-                $network->connect();
-            }
-            when(ACTION_NETWORK_NICK) {
-                die "not implemented";
-            }
-            when(ACTION_NETWORK_DISCONNECT) {
-                $self->_remove_actions(network => $network);
-                $network->disconnect();
-            }
-            when(ACTION_CHANNEL_JOIN) {
-                $self->_remove_actions(channel => $channel);
+        if ($action->{type} == ACTION_NETWORK_CONNECT) {
+            $self->_remove_actions(network => $network);
+            $network->connect();
+        } elsif ($action->{type} == ACTION_NETWORK_RECONNECT) {
+            $self->_remove_actions(network => $network);
+            $network->disconnect();
+            $network->connect();
+        } elsif ($action->{type} == ACTION_NETWORK_NICK) {
+            die "not implemented";
+        } elsif ($action->{type} == ACTION_NETWORK_DISCONNECT) {
+            $self->_remove_actions(network => $network);
+            $network->disconnect();
+        } elsif ($action->{type} == ACTION_CHANNEL_JOIN) {
+            $self->_remove_actions(channel => $channel);
+            if ($network->{bot}) {
                 $network->{bot}->join($channel);
             }
-            when(ACTION_CHANNEL_PART) {
-                $self->_remove_actions(channel => $channel);
+        } elsif ($action->{type} == ACTION_CHANNEL_PART) {
+            $self->_remove_actions(channel => $channel);
+            if ($network->{bot}) {
                 $network->{bot}->part($channel);
             }
         }

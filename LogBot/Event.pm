@@ -1,14 +1,9 @@
 package LogBot::Event;
-
-use strict;
-use warnings;
-use feature qw(switch);
+use LogBot::BP;
 
 use base 'LogBot::Base';
 
 use DateTime;
-use LogBot::Constants;
-use LogBot::Util;
 
 use fields qw(
     id
@@ -35,10 +30,17 @@ sub new {
     foreach my $field (qw(id type time channel nick text)) {
         $self->{$field} = $args{$field};
     }
+    if (defined $self->{text}) {
+        # remove irc colours
+        $self->{text} =~ s/\cC\d{1,2}(?:,\d{1,2})?//g;
+        $self->{text} =~ s/(?:\c[CBIURO])//g;
+        $self->{text} =~ tr/\x02\x0f\x1f//d;
+    } else {
+        $self->{text} = '';
+    }
     $self->{id} ||= 0;
     $self->{channel} = canon_channel($self->{channel});
     $self->{time} ||= now()->hires_epoch;
-    $self->{text} = '' unless defined $self->{text};
 
     return $self;
 }
@@ -71,26 +73,43 @@ sub to_string {
     my ($self) = @_;
 
     my $template;
-    given($self->{type}) {
-        when(EVENT_PUBLIC) { $template = '%s <%s> %s' }
-        when(EVENT_JOIN)   { $template = '%s *** %s (%s) has joined %s' }
-        when(EVENT_PART)   { $template = '%s *** %s (%s) has left %s' }
-        when(EVENT_QUIT)   { $template = '%s *** %s has quit IRC [%s]' }
-        when(EVENT_ACTION) { $template = '%s * %s %s' }
+    if ($self->{type} == EVENT_PUBLIC) {
+        $template = '[%s] <%s> %s';
+    } elsif ($self->{type} == EVENT_JOIN) {
+        $template = '[%s] *** %s (%s) has joined %s';
+    } elsif ($self->{type} == EVENT_PART) {
+        $template = '[%s] *** %s (%s) has left %s';
+    } elsif ($self->{type} == EVENT_QUIT) {
+        $template = '[%s] *** %s has quit IRC [%s]';
+    } elsif ($self->{type} == EVENT_ACTION) {
+        $template = '[%s] * %s %s';
     }
     return sprintf($template, simple_date_string($self->datetime), $self->{nick}, $self->{text} || '', $self->{channel});
+}
+
+sub to_ref {
+    my ($self) = @_;
+    my $ref = {};
+    foreach my $field (qw( id type time channel nick text )) {
+        $ref->{$field} = $self->{$field};
+    }
+    return $ref;
 }
 
 sub log_string {
     my ($self) = @_;
 
     my $template;
-    given($self->{type}) {
-        when(EVENT_PUBLIC) { $template = '%s <%s> %s' }
-        when(EVENT_JOIN)   { $template = '%s *** %s (%s) has joined %s' }
-        when(EVENT_PART)   { $template = '%s *** %s (%s) has left %s' }
-        when(EVENT_QUIT)   { $template = '%s *** %s has quit IRC [%s]' }
-        when(EVENT_ACTION) { $template = '%s * %s %s' }
+    if ($self->{type} == EVENT_PUBLIC) {
+        $template = '%s <%s> %s';
+    } elsif ($self->{type} == EVENT_JOIN) {
+        $template = '%s *** %s (%s) has joined %s';
+    } elsif ($self->{type} == EVENT_PART) {
+        $template = '%s *** %s (%s) has left %s';
+    } elsif ($self->{type} == EVENT_QUIT) {
+        $template = '%s *** %s has quit IRC [%s]';
+    } elsif ($self->{type} == EVENT_ACTION) {
+        $template = '%s * %s %s';
     }
     return sprintf($template, $self->datetime, $self->{nick}, $self->{text} || '', $self->{channel});
 }
